@@ -24,10 +24,11 @@ from lib.report import TEMPLATE_host, TEMPLATE_html, TEMPLATE_severity_high, TEM
 
 
 class InfoDisScanner(InfoDisScannerBase):
-    def __init__(self, url, lock, timeout=600, depth=2):
+    def __init__(self, url, port,lock, timeout=600, depth=2):
         self.START_TIME = time.time()
         #self.lock = lock
         self.TIME_OUT = timeout
+        self.port = port            # port to scan
         self.LINKS_LIMIT = 20       # max number of links
         self.final_severity = 0
         self.schema, self.host, self.path = self._parse_url(url)
@@ -110,11 +111,11 @@ class InfoDisScanner(InfoDisScannerBase):
         except Exception, e:
             logging.error('[Exception in InfoDisScanner._load_dict] %s' % e)
 
-    def _http_request(self, url, timeout=40):
+    def _http_request(self, url, port=80, timeout=40):
         try:
             if not url: url = '/'
             conn_fuc = httplib.HTTPSConnection if self.schema == 'https' else httplib.HTTPConnection
-            conn = conn_fuc(self.host, 801,timeout=timeout)     #端口只有默认的80
+            conn = conn_fuc(self.host, self.port, timeout=timeout)     #端口只有默认的80
             conn.request(method='GET', url=url,
                          headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.111 Safari/537.36 BBScan/1.0'}
             )
@@ -151,7 +152,7 @@ class InfoDisScanner(InfoDisScannerBase):
             pass
         raise Exception('Fail to decode response Text')
 
-    def get_status(self, url):
+    def get_status(self, url):      # not use 
         return self._http_request(url)[0]
 
     def check_404(self):
@@ -246,7 +247,7 @@ class InfoDisScanner(InfoDisScannerBase):
                         # print '[+] [Prefix:%s] [%s] %s' % (prefix, status, 'http://' + self.host +  url)
                         if not prefix in self.results:
                             self.results[prefix]= []
-                        self.results[prefix].append({'status':status, 'url': '%s://%s%s' % (self.schema, self.host, url)} )
+                        self.results[prefix].append({'status':status, 'url': '%s://%s:%s%s' % (self.schema, self.host,self.port,url)} )
                         self._update_severity(severity)
                         self.lock.release()
 
@@ -272,9 +273,9 @@ class InfoDisScanner(InfoDisScannerBase):
         return self.host, self.results, self.final_severity
 
 
-def batch_scan(url, q_results, lock, threads_num, timeout):
-        print 'Scan', url
-        a = InfoDisScanner(url, lock, timeout*60)
+def batch_scan(url, port, q_results, lock, threads_num, timeout):
+        print 'Scan', url, port
+        a = InfoDisScanner(url, port, lock, timeout*60)
         host, results, severity = a.scan(threads=threads_num)
         if results:
             q_results.put((host, results, severity))
@@ -287,6 +288,7 @@ def batch_scan(url, q_results, lock, threads_num, timeout):
 
 
 if __name__ == '__main__':
+    ports = [80,8000,8010,8020,8080,8090]
     args = parse_args()
     if args.d:
         all_files = glob.glob(args.d + '/*.txt')
@@ -317,7 +319,8 @@ if __name__ == '__main__':
                         ip = socket.gethostbyname(host.split(':')[0])
                         if ip:
                             scanned_ips.append(ip)
-                            pool.apply_async(func=batch_scan, args=(host, q_results, lock, args.t, args.timeout) )
+                            for port in ports:
+                                pool.apply_async(func=batch_scan, args=(host, port, q_results, lock, args.t, args.timeout) )
                     except Exception, e:
                         print e
         if args.network != 32:
@@ -327,7 +330,8 @@ if __name__ == '__main__':
                     _ip = str(_ip)
                     if _ip not in scanned_ips:
                         scanned_ips.append(_ip)
-                        pool.apply_async(func=batch_scan, args=(_ip, q_results, lock, args.t, args.timeout) )
+                        for port in ports:
+                            pool.apply_async(func=batch_scan, args=(_ip, port, q_results, lock, args.t, args.timeout) )
         pool.close()
         pool.join()
 
@@ -358,8 +362,7 @@ if __name__ == '__main__':
         cost_seconds = '%.2f' % (cost_time % 60)
         html_doc = t_html.substitute({'cost_min': cost_min, 'cost_seconds': cost_seconds, 'content': html_doc})
 
-        report_name = os.path.basename(file).lower().replace('.txt', '') + '_' + \
-                      time.strftime('%Y%m%d_%H%M%S', time.localtime()) + '.html'
+        report_name = os.path.basename(file).lower().replace('.txt', '') + '_' + host + '.html'
         with open('report/%s' % report_name, 'w') as outFile:
             outFile.write(html_doc)
         print 'Report saved to report/%s' % report_name
