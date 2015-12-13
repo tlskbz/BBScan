@@ -288,7 +288,7 @@ def batch_scan(url, port, q_results, lock, threads_num, timeout):
 
 
 if __name__ == '__main__':
-    ports = [80,8000,8010,8020,8080,8090]
+    ports = [80,8000,8010,8020,8080,8090,8200]
     args = parse_args()
     if args.d:
         all_files = glob.glob(args.d + '/*.txt')
